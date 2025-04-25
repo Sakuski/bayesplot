@@ -71,7 +71,8 @@ ppc_km_overlay <- function(
   ...,
   status_y,
   size = 0.25,
-  alpha = 0.7
+  alpha = 0.7,
+  extrapolation_factor = 1.2
 ) {
   check_ignored_arguments(..., ok_args = "add_group")
   add_group <- list(...)$add_group
@@ -81,6 +82,10 @@ ppc_km_overlay <- function(
 
   stopifnot(is.numeric(status_y))
   stopifnot(all(status_y %in% c(0, 1)))
+
+  if (extrapolation_factor < 1) {
+    stop("`extrapolation_factor` must be greater than or equal to 1.")
+  }
 
   data <- ppc_data(y, yrep, group = status_y)
 
@@ -119,6 +124,10 @@ ppc_km_overlay <- function(
   fsf$is_y_color <- as.factor(sub("\\[rep\\] \\(.*$", "rep", sub("^italic\\(y\\)", "y", fsf$strata)))
   fsf$is_y_size <- ifelse(fsf$is_y_color == "yrep", size, 1)
   fsf$is_y_alpha <- ifelse(fsf$is_y_color == "yrep", alpha, 1)
+
+  max_time_y <- max(y, na.rm = TRUE)
+  fsf <- fsf %>%
+    dplyr::filter(is_y_color != "yrep" | time <= max_time_y * extrapolation_factor)
 
   # Ensure that the observed data gets plotted last by reordering the
   # levels of the factor "strata"
