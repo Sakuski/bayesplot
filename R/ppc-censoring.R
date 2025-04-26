@@ -70,6 +70,7 @@ ppc_km_overlay <- function(
   yrep,
   ...,
   status_y,
+  truncation_y = NULL,
   size = 0.25,
   alpha = 0.7,
   extrapolation_factor = 1.2
@@ -87,7 +88,19 @@ ppc_km_overlay <- function(
     stop("`extrapolation_factor` must be greater than or equal to 1.")
   }
 
+  if (!is.null(truncation_y)) {
+    if (!is.numeric(truncation_y) || length(truncation_y) != length(y)) {
+      stop("`truncation_y` must be a numeric vector of the same length as `y`.")
+    }
+  }
+
   data <- ppc_data(y, yrep, group = status_y)
+
+  if (!is.null(truncation_y)) {
+    data$trunc <- truncation_y[data$y_id]
+  } else {
+    data$trunc <- 0
+  }
 
   # Modify the status indicator:
   #   * For the observed data ("y"), convert the status indicator back to
@@ -101,7 +114,8 @@ ppc_km_overlay <- function(
                                  as.numeric(as.character(.data$group)),
                                  1))
 
-  sf_form <- survival::Surv(value, group) ~ rep_label
+  sf_form <- survival::Surv(time = data$trunc, time2 = data$value, event = data$group) ~ rep_label
+
   if (!is.null(add_group)) {
     data <- dplyr::inner_join(data,
                               tibble::tibble(y_id = seq_along(y),
