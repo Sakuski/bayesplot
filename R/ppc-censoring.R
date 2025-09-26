@@ -98,31 +98,39 @@ NULL
 #'   `extrapolation_factor = Inf`.
 #'
 ppc_km_overlay <- function(
-  y,
-  yrep,
-  ...,
-  status_y,
-  left_truncation_y = NULL,
-  extrapolation_factor = 1.2,
-  size = 0.25,
-  alpha = 0.7
+    y,
+    yrep,
+    yimp = NULL,
+    ...,
+    status_y,
+    left_truncation_y = NULL,
+    extrapolation_factor = 1.2,
+    size = 0.25,
+    alpha = 0.7
 ) {
+  # 1. Argument and package checks (mostly from original function)
+  # =============================================================
   check_ignored_arguments(..., ok_args = "add_group")
   add_group <- list(...)$add_group
 
   suggested_package("survival")
   suggested_package("ggfortify")
+  suggested_package("dplyr")
+  suggested_package("tidyr")
+  suggested_package("tibble")
+
 
   if (!is.numeric(status_y) || length(status_y) != length(y) || !all(status_y %in% c(0, 1))) {
     stop("`status_y` must be a numeric vector of 0s and 1s the same length as `y`.", call. = FALSE)
   }
-
+  if (!is.null(yimp) && (!is.numeric(yimp) || length(yimp) != length(y))) {
+    stop("`yimp` must be a numeric vector the same length as `y`.", call. = FALSE)
+  }
   if (!is.null(left_truncation_y)) {
     if (!is.numeric(left_truncation_y) || length(left_truncation_y) != length(y)) {
       stop("`left_truncation_y` must be a numeric vector of the same length as `y`.", call. = FALSE)
     }
   }
-
   if (extrapolation_factor < 1) {
     stop("`extrapolation_factor` must be greater than or equal to 1.", call. = FALSE)
   }
@@ -133,86 +141,156 @@ ppc_km_overlay <- function(
     )
   }
 
-  data <- ppc_data(y, yrep, group = status_y)
+  # 2. Manual Data Preparation (replaces ppc_data())
+  # =================================================
+  # Create individual tibbles for y, yimp, and yrep
+  y_df <- tibble::tibble(
+    value = y,
+    y_id = seq_along(y),
+    source = "y",
+    rep_id = 0,
+    event = status_y # Use the actual status for observed data
+  )
 
-  # Modify the status indicator:
-  #   * For the observed data ("y"), convert the status indicator back to
-  #     a numeric.
-  #   * For the replicated data ("yrep"), set the status indicator
-  #     to 1 ("event"). This way, the Kaplan-Meier estimator reduces
-  #     to "1 - ECDF" with ECDF denoting the ordinary empirical cumulative
-  #     distribution function.
-  data <- data %>%
-    dplyr::mutate(group = ifelse(.data$is_y,
-                                 as.numeric(as.character(.data$group)),
-                                 1))
+  yimp_df <- NULL
+  if (!is.null(yimp)) {
+    yimp_df <- tibble::tibble(
+      value = yimp,
+      y_id = seq_along(yimp),
+      source = "yimp",
+      rep_id = 0,
+      event = 1 # Imputed data is treated as a complete event
+    )
+  }
 
+  S <- nrow(yrep)
+  N <- ncol(yrep)
+  yrep_df <- tibble::as_tibble(yrep, .name_repair = ~ as.character(1:N)) %>%
+    dplyr::mutate(rep_id = 1:S) %>%
+    tidyr::pivot_longer(
+      cols = -dplyr::all_of("rep_id"),
+      names_to = "y_id",
+      values_to = "value"
+    ) %>%
+    dplyr::mutate(
+      y_id = as.integer(.data$y_id),
+      source = "yrep",
+      event = 1 # Replicated data is treated as a complete event
+    )
+
+  # Combine into a single long-format data frame
+  combined_data <- dplyr::bind_rows(y_df, yimp_df, yrep_df) %>%
+    dplyr::mutate(
+      # Create a unique identifier for each curve for the survfit formula
+      strata_group = dplyr::case_when(
+        .data$source == "y"    ~ "italic(y)",
+        .data$source == "yimp" ~ "italic(y^imp)",
+        .data$source == "yrep" ~ paste0("[rep] (", .data$rep_id, ")")
+      )
+    )
+
+  # 3. Kaplan-Meier Estimation
+  # ============================
   if (is.null(left_truncation_y)) {
-    sf_form <- survival::Surv(time = data$value, event = data$group) ~ rep_label
+    sf_form <- survival::Surv(time = combined_data$value, event = combined_data$event) ~ strata_group
   } else {
-    sf_form <- survival::Surv(time = left_truncation_y[data$y_id], time2 = data$value, event = data$group) ~ rep_label
+    sf_form <- survival::Surv(time = left_truncation_y[combined_data$y_id], time2 = combined_data$value, event = combined_data$event) ~ strata_group
   }
 
   if (!is.null(add_group)) {
-    data <- dplyr::inner_join(data,
-                              tibble::tibble(y_id = seq_along(y),
-                                             add_group = add_group),
-                              by = "y_id")
+    add_group_df <- tibble::tibble(y_id = seq_along(y), add_group = add_group)
+    combined_data <- dplyr::inner_join(combined_data, add_group_df, by = "y_id")
     sf_form <- update(sf_form, . ~ . + add_group)
   }
-  sf <- survival::survfit(
-    sf_form,
-    data = data
-  )
-  names(sf$strata) <- sub("add_group=", "add_group:", names(sf$strata)) # Needed to split the strata names in ggfortify:::fortify.survfit() properly.
+
+  sf <- survival::survfit(sf_form, data = combined_data)
+
+  # Rename strata for ggfortify parsing if add_group is used
+  if (!is.null(add_group)) {
+    names(sf$strata) <- sub("add_group=", "add_group:", names(sf$strata))
+  }
+
+  # 4. Prepare fortified data for ggplot
+  # ======================================
   fsf <- fortify(sf)
+
+  # Handle splitting strata if add_group was used
   if(any(grepl("add_group", levels(fsf$strata)))){
     strata_split <- strsplit(as.character(fsf$strata), split = ", add_group:")
     fsf$strata <- as.factor(sapply(strata_split, "[[", 1))
     fsf$group <- as.factor(sapply(strata_split, "[[", 2))
   }
 
-  fsf$is_y_color <- as.factor(sub("\\[rep\\] \\(.*$", "rep", sub("^italic\\(y\\)", "y", fsf$strata)))
-  fsf$is_y_size <- ifelse(fsf$is_y_color == "yrep", size, 1)
-  fsf$is_y_alpha <- ifelse(fsf$is_y_color == "yrep", alpha, 1)
+  # Create a column to map aesthetics (color, size, alpha)
+  fsf <- fsf %>%
+    dplyr::mutate(
+      curve_type = dplyr::case_when(
+        grepl("italic\\(y\\)$", .data$strata) ~ "y",
+        grepl("y\\^imp", .data$strata)      ~ "yimp",
+        TRUE                               ~ "yrep"
+      )
+    )
 
+  # Filter yrep curves based on the extrapolation factor
   max_time_y <- max(y, na.rm = TRUE)
   fsf <- fsf %>%
-    dplyr::filter(is_y_color != "yrep" | time <= max_time_y * extrapolation_factor)
+    dplyr::filter(.data$curve_type == "y" | .data$time <= max_time_y * extrapolation_factor)
 
-  # Ensure that the observed data gets plotted last by reordering the
-  # levels of the factor "strata"
-  fsf$strata <- factor(fsf$strata, levels = rev(levels(fsf$strata)))
+  # Ensure correct plotting order: y on top, then yimp, then yrep at the bottom
+  y_level <- "italic(y)"
+  yimp_level <- if (!is.null(yimp)) "italic(y^imp)" else NULL
+  yrep_levels <- unique(fsf$strata[fsf$curve_type == "yrep"])
+  new_levels <- c(yrep_levels, yimp_level, y_level)
+  fsf$strata <- factor(fsf$strata, levels = new_levels)
 
-  ggplot(data = fsf,
-         mapping = aes(x = .data$time,
-                       y = .data$surv,
-                       color = .data$is_y_color,
-                       group = .data$strata,
-                       size = .data$is_y_size,
-                       alpha = .data$is_y_alpha)) +
-    geom_step() +
-    hline_at(
-      0.5,
-      linewidth = 0.1,
-      linetype = 2,
-      color = get_color("dh")
+  # 5. Generate the Plot using multiple layers for correct ordering
+  # ===============================================================
+  p <- ggplot(
+    data = fsf,
+    mapping = aes(
+      x = .data$time,
+      y = .data$surv,
+      group = .data$strata,
+      color = .data$curve_type,
+      size = .data$curve_type,
+      alpha = .data$curve_type
+    )
+  ) +
+    # Layer 1 (Bottom): yrep curves, filtered using the dot-pipe pronoun
+    geom_step(data = . %>% dplyr::filter(curve_type == "yrep"), na.rm = TRUE) +
+    # Layer 2 (Middle): yimp curve
+    geom_step(data = . %>% dplyr::filter(curve_type == "yimp"), na.rm = TRUE) +
+    # Layer 3 (Top): y curve
+    geom_step(data = . %>% dplyr::filter(curve_type == "y"), na.rm = TRUE) +
+    # Reference lines
+    hline_at(0.5, linewidth = 0.1, linetype = 2, color = get_color("dh")) +
+    hline_at(c(0, 1), linewidth = 0.2, linetype = 2, color = get_color("dh")) +
+    # Manual scales to control the appearance of each curve type
+    scale_color_manual(
+      name = NULL,
+      values = c("y" = get_color("dark"), "yimp" = get_color("mid"), "yrep" = get_color("light")),
+      labels = c("y" = expression(italic(y)), "yimp" = expression(italic(y)^{imp}), "yrep" = expression(italic(y)^{rep}))
     ) +
-    hline_at(
-      c(0, 1),
-      linewidth = 0.2,
-      linetype = 2,
-      color = get_color("dh")
+    scale_size_manual(
+      name = NULL,
+      values = c("y" = 1, "yimp" = 1, "yrep" = size),
+      guide = "none"
     ) +
-    scale_size_identity() +
-    scale_alpha_identity() +
-    scale_color_ppc() +
+    scale_alpha_manual(
+      name = NULL,
+      values = c("y" = 1, "yimp" = 0.75, "yrep" = alpha),
+      guide = "none"
+    ) +
     scale_y_continuous(breaks = c(0, 0.5, 1)) +
+    # Standard bayesplot theme elements
     xlab(y_label()) +
     yaxis_title(FALSE) +
     xaxis_title(FALSE) +
     yaxis_ticks(FALSE) +
-    bayesplot_theme_get()
+    bayesplot_theme_get() +
+    theme(legend.text.align = 0)
+
+  return(p)
 }
 
 #' @export
