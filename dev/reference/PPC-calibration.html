@@ -30,13 +30,16 @@ details and examples."><meta property="og:image" content="https://mc-stan.org/ba
 
     <div id="navbar" class="collapse navbar-collapse ms-3">
       <ul class="navbar-nav me-auto"><li class="nav-item"><a class="nav-link" href="../index.html" aria-label="Go to homepage"><span class="fa fa-home fa-lg"></span></a></li>
+<li class="nav-item"><a class="nav-link" href="../articles/index.html">Articles</a></li>
 <li class="active nav-item"><a class="nav-link" href="../reference/index.html">Functions</a></li>
 <li class="nav-item"><a class="nav-link" href="../news/index.html">Changelog</a></li>
 <li class="nav-item dropdown">
   <button class="nav-link dropdown-toggle" type="button" id="dropdown-other-packages" data-bs-toggle="dropdown" aria-expanded="false" aria-haspopup="true">Other Packages</button>
-  <ul class="dropdown-menu" aria-labelledby="dropdown-other-packages"><li><a class="external-link dropdown-item" href="https://mc-stan.org/cmdstanr">cmdstanr</a></li>
+  <ul class="dropdown-menu" aria-labelledby="dropdown-other-packages"><li><a class="dropdown-item" href="https://mc-stan.org/bayesplot">bayesplot</a></li>
+    <li><a class="external-link dropdown-item" href="https://mc-stan.org/cmdstanr">cmdstanr</a></li>
     <li><a class="external-link dropdown-item" href="https://mc-stan.org/loo">loo</a></li>
     <li><a class="external-link dropdown-item" href="https://mc-stan.org/posterior">posterior</a></li>
+    <li><a class="external-link dropdown-item" href="https://mc-stan.org/priorsense/">priorsense</a></li>
     <li><a class="external-link dropdown-item" href="https://mc-stan.org/projpred">projpred</a></li>
     <li><a class="external-link dropdown-item" href="https://mc-stan.org/rstan">rstan</a></li>
     <li><a class="external-link dropdown-item" href="https://mc-stan.org/rstanarm">rstanarm</a></li>
@@ -289,7 +292,7 @@ function.</p>
     <p>The PPC calibration functions are designed to assess the calibration of a
 model with binary outcomes. In this context, calibration refers to the
 agreement between predicted probabilities and conditional event probabilities
-(CEPs) see Dimitriadis et al. (2021) and Säilynoja et al. (2025) for details.</p>
+(CEPs) see Dimitriadis et al. (2021) and Säilynoja et al. (2026) for details.</p>
 <p>The required inputs are <code>y</code>, representing binary observations
 (0 or 1), and either <code>yrep</code> or <code>prep</code>. Specifically,
 <code>ppc_calibration_overlay()</code> and <code>ppc_calibration_overlay_grouped()</code> require
@@ -333,9 +336,10 @@ whether the data frame for <code>ppc_calibration_overlay()</code> and its <code>
 reliability diagrams for probabilistic classifiers. Proceedings of the
 National Academy of Sciences, 118(8).
 https://doi.org/10.1073/pnas.2016191118</p>
-<p>Säilynoja, T., Johnson, A. R., Martin, O. A., &amp; Vehtari, A. (2025).
+<p>Säilynoja, T., Johnson, A., Martin, O., and Vehtari, A. (2026).
 Recommendations for visual predictive checks in Bayesian workflow.
-(Preprint). arXiv. https://doi.org/10.48550/arXiv.2503.01509</p>
+<em>Journal of Visualization and Interaction</em>. 1(1).
+doi:10.54337/jovi.v1i1.11478.</p>
     </div>
     <div class="section level2">
     <h2 id="see-also">See also<a class="anchor" aria-label="anchor" href="#see-also"></a></h2>
